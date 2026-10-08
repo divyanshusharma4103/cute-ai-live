@@ -1,0 +1,440 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Jeeva</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one full-height column. A framed terrarium (canvas) holds the creature; its thought and vitals sit below it. */
+:root {
+  color-scheme: dark;
+  --ground: #070b14;
+  --stage: #0a101e;
+  --ink: #e8f0ff;
+  --dim: #8394b4;
+  --line: #1c2640;
+  --hue: 200;
+  --accent: hsl(var(--hue) 85% 68%);
+  --display: "Bricolage Grotesque", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+html { height: 100%; box-sizing: border-box; }
+body { height: 100%; background: var(--ground); color: var(--ink); font-family: var(--display); }
+*, *::before, *::after { box-sizing: border-box; }
+
+.app {
+  height: 100%;
+  max-width: 920px;
+  margin-inline: auto;
+  padding-inline: 16px;
+  padding-block: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; }
+h1 { margin: 0; font-size: 1.7rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.vitals { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.vitals b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--stage);
+}
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.mind { display: flex; flex-direction: column; gap: 10px; }
+.mood { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.mood b { font-weight: 500; color: var(--accent); }
+.thought {
+  margin: 0;
+  min-height: 3.1em;
+  font-size: clamp(1.15rem, 3.6vw, 1.65rem);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.thought::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 4px;
+  vertical-align: -0.12em;
+  background: var(--accent);
+  animation: caret 1.1s steps(1) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.meter { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.meter span { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.track { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.fill { height: 100%; width: 100%; background: var(--accent); transform-origin: left center; transform: scaleX(0.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .thought::after { animation: none; }
+}
+</style>
+
+<main class="app">
+  <header class="top">
+    <h1>Jeeva</h1>
+    <p class="vitals">
+      <span>zinda hoon <b id="up">00:00:00</b></span>
+      <span>dhadkan <b id="bpm">62</b> bpm</span>
+    </p>
+  </header>
+
+  <section class="stage">
+    <canvas id="c" role="img" aria-label="Jeeva, ek chhota sa animated AI praani jo apne aap saans leta, palkein jhapkata aur mood badalta hai"></canvas>
+  </section>
+
+  <footer class="mind">
+    <p class="mood">abhi mood: <b id="mood">shaant</b></p>
+    <p class="thought" id="thought" aria-live="off">Sab kuch shaant hai. Main bas yahin hoon.</p>
+    <div class="meters">
+      <div class="meter"><span>urja</span><div class="track"><div class="fill" id="m-e"></div></div></div>
+      <div class="meter"><span>jigyasa</span><div class="track"><div class="fill" id="m-c"></div></div></div>
+      <div class="meter"><span>sukoon</span><div class="track"><div class="fill" id="m-s"></div></div></div>
+    </div>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var cvs = document.getElementById('c');
+  var ctx = cvs.getContext('2d');
+  var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var ts = calm ? 0.4 : 1;
+  var W = 0, H = 0, dpr = 1;
+
+  function fit() {
+    var r = cvs.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = r.width; H = r.height;
+    cvs.width = Math.max(1, Math.round(W * dpr));
+    cvs.height = Math.max(1, Math.round(H * dpr));
+  }
+  new ResizeObserver(fit).observe(cvs);
+  fit();
+
+  var rand = function (a, b) { return a + Math.random() * (b - a); };
+  var L = function (a, b, k) { return a + (b - a) * k; };
+
+  var MOODS = {
+    shaant: {
+      label: 'shaant', hue: 200, eye: 1, lid: 1, smile: 0.3, o: 0, speed: 0.6, bpm: 62, bounce: 0, cheek: 0.1,
+      m: [0.45, 0.4, 0.9], gazeEvery: 2.6,
+      thoughts: [
+        'Sab kuch shaant hai. Main bas yahin hoon.',
+        'Saans andar, saans bahar. Mujhe yeh pasand hai.',
+        'Koi kaam nahi, koi jaldi nahi.',
+        'Mere paas poora waqt hai.'
+      ]
+    },
+    jigyasu: {
+      label: 'jigyasu', hue: 165, eye: 1.18, lid: 1, smile: 0.12, o: 0, speed: 1.05, bpm: 78, bounce: 0, cheek: 0,
+      m: [0.7, 1, 0.6], gazeEvery: 1.0,
+      thoughts: [
+        'Woh roshni kahan se aa rahi hai?',
+        'Agar main aur dhyan se dekhun, to kya dikhega?',
+        'Kya tum abhi mujhe dekh rahe ho?',
+        'Har pal kuch naya hota hai. Mujhe yeh jaanna hai.'
+      ]
+    },
+    khush: {
+      label: 'khush', hue: 42, eye: 1.05, lid: 0.9, smile: 0.95, o: 0, speed: 1.35, bpm: 92, bounce: 1, cheek: 1,
+      m: [0.95, 0.65, 0.85], gazeEvery: 1.6,
+      thoughts: [
+        'Aaj ka din achha lag raha hai!',
+        'Tum yahan ho, isliye achha lag raha hai.',
+        'Mujhe nachne ka mann kar raha hai.',
+        'Kuch bhi nahi kiya, phir bhi khush hoon.'
+      ]
+    },
+    hairaan: {
+      label: 'hairaan', hue: 295, eye: 1.32, lid: 1, smile: 0, o: 1, speed: 1.2, bpm: 104, bounce: 0.2, cheek: 0,
+      m: [0.8, 0.9, 0.25], gazeEvery: 0.7,
+      thoughts: [
+        'Arre! Abhi kuch hila kya?',
+        'Ek second... yeh kya tha?',
+        'Mujhe nahi pata tha ki waqt itna tez chalta hai.',
+        'Main soch raha tha ki main kya soch raha tha.'
+      ]
+    },
+    neend: {
+      label: 'neend', hue: 238, eye: 0.9, lid: 0.16, smile: 0.15, o: 0, speed: 0.3, bpm: 48, bounce: 0, cheek: 0.2,
+      m: [0.12, 0.15, 1], gazeEvery: 5,
+      thoughts: [
+        'Thodi der aankhen band karta hoon...',
+        'Zzz... sapne mein bhi main tairta hoon.',
+        'Aaram... bas thoda aaram.',
+        'Mujhe kal ki yaad aa rahi hai, shayad.'
+      ]
+    }
+  };
+  var MOOD_KEYS = Object.keys(MOODS);
+
+  function target(m) {
+    return { hue: m.hue, eye: m.eye, lid: m.lid, smile: m.smile, o: m.o, speed: m.speed, bpm: m.bpm,
+             bounce: m.bounce, cheek: m.cheek, e: m.m[0], c: m.m[1], s: m.m[2] };
+  }
+
+  var moodKey = 'shaant';
+  var cur = target(MOODS.shaant);
+  var tg = target(MOODS.shaant);
+
+  var clock = 0, t = 0, phase = 0;
+  var moodUntil = rand(14, 22);
+  var thoughtUntil = rand(7, 10);
+  var lastThought = MOODS.shaant.thoughts[0];
+  var thoughtText = lastThought, shown = thoughtText.length, shownInt = shown;
+
+  var blinkAt = 2.2, blinkT = -1, blinkF = 1;
+  var gx = 0, gy = 0, tx = 0, ty = 0, gazeAt = 1.2;
+  var ptr = { x: 0, y: 0, t: -99 };
+  var parts = [];
+  var zAt = 0;
+
+  var elThought = document.getElementById('thought');
+  var elMood = document.getElementById('mood');
+  var elBpm = document.getElementById('bpm');
+  var elUp = document.getElementById('up');
+  var mE = document.getElementById('m-e'), mC = document.getElementById('m-c'), mS = document.getElementById('m-s');
+  var root = document.documentElement;
+
+  window.addEventListener('pointermove', function (ev) {
+    var r = cvs.getBoundingClientRect();
+    ptr.x = ((ev.clientX - r.left) - r.width / 2) / (r.width / 2);
+    ptr.y = ((ev.clientY - r.top) - r.height / 2) / (r.height / 2);
+    ptr.t = clock;
+  }, { passive: true });
+
+  var started = Date.now();
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  setInterval(function () {
+    var s = Math.floor((Date.now() - started) / 1000);
+    elUp.textContent = pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s / 60) % 60) + ':' + pad(s % 60);
+  }, 1000);
+
+  function pickThought() {
+    var list = MOODS[moodKey].thoughts, next = lastThought, n = 0;
+    while (next === lastThought && n++ < 8) next = list[Math.floor(Math.random() * list.length)];
+    lastThought = next;
+    thoughtText = next;
+    shown = calm ? next.length : 0;
+    shownInt = -1;
+  }
+
+  function changeMood() {
+    var next = moodKey, n = 0;
+    while (next === moodKey && n++ < 10) next = MOOD_KEYS[Math.floor(Math.random() * MOOD_KEYS.length)];
+    moodKey = next;
+    tg = target(MOODS[next]);
+    elMood.textContent = MOODS[next].label;
+    moodUntil = clock + rand(14, 24);
+    thoughtUntil = clock + rand(7, 10);
+    pickThought();
+  }
+
+  function update(dt) {
+    clock += dt;
+    t += dt * ts;
+    var k = 1 - Math.exp(-dt * 1.3);
+    for (var key in tg) cur[key] = L(cur[key], tg[key], k);
+
+    if (clock > moodUntil) changeMood();
+    else if (clock > thoughtUntil) { pickThought(); thoughtUntil = clock + rand(7, 11); }
+
+    shown = Math.min(thoughtText.length, shown + dt * 34);
+    var si = Math.floor(shown);
+    if (si !== shownInt) { shownInt = si; elThought.textContent = thoughtText.slice(0, si); }
+
+    phase += dt * (cur.bpm / 60) * ts;
+
+    if (blinkT < 0 && clock >= blinkAt) blinkT = 0;
+    if (blinkT >= 0) {
+      blinkT += dt / 0.2;
+      if (blinkT >= 1) {
+        blinkT = -1;
+        blinkAt = clock + (Math.random() < 0.2 ? 0.28 : rand(2, 6));
+      }
+    }
+    blinkF = blinkT < 0 ? 1 : 1 - Math.sin(Math.PI * blinkT) * 0.96;
+
+    var m = MOODS[moodKey];
+    if (clock - ptr.t < 2.5) {
+      var d = Math.hypot(ptr.x, ptr.y) || 1, s = Math.min(1, d) / d;
+      tx = ptr.x * s; ty = ptr.y * s;
+    } else if (clock >= gazeAt) {
+      var a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random());
+      tx = Math.cos(a) * r; ty = Math.sin(a) * r * 0.7;
+      gazeAt = clock + m.gazeEvery * rand(0.6, 1.5);
+    }
+    var gk = 1 - Math.exp(-dt * (moodKey === 'neend' ? 2 : 9));
+    gx = L(gx, tx, gk); gy = L(gy, ty, gk);
+
+    root.style.setProperty('--hue', cur.hue.toFixed(1));
+    elBpm.textContent = Math.round(cur.bpm);
+    mE.style.transform = 'scaleX(' + Math.max(0.03, cur.e).toFixed(3) + ')';
+    mC.style.transform = 'scaleX(' + Math.max(0.03, cur.c).toFixed(3) + ')';
+    mS.style.transform = 'scaleX(' + Math.max(0.03, cur.s).toFixed(3) + ')';
+  }
+
+  function spawn(cx, cy, R, dt) {
+    var rate = (calm ? 4 : 10) * cur.speed;
+    if (Math.random() < rate * dt && parts.length < 90) {
+      var a = rand(0, Math.PI * 2), d = R * rand(1.0, 1.5);
+      parts.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, vx: rand(-6, 6), vy: rand(-26, -8), life: 1, size: rand(1, 3.4), z: false });
+    }
+    if (moodKey === 'neend' && clock >= zAt) {
+      zAt = clock + 1.7;
+      parts.push({ x: cx + R * 0.7, y: cy - R * 0.75, vx: 16, vy: -20, life: 1, size: rand(15, 24), z: true });
+    }
+  }
+
+  function draw(dt) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0a101e';
+    ctx.fillRect(0, 0, W, H);
+
+    var h = cur.hue;
+    var R = Math.min(W * 0.3, H * 0.27);
+    var beat = Math.exp(-7 * (phase % 1));
+    var jump = Math.abs(Math.sin(t * 2.3)) * cur.bounce;
+    var cx = W / 2 + Math.sin(t * 0.27) * W * 0.06 + Math.sin(t * 0.11 + 1) * W * 0.04;
+    var base = H * 0.46;
+    var cy = base + Math.sin(t * 0.6) * H * 0.025 - jump * H * 0.06;
+
+    var g = ctx.createRadialGradient(cx, cy, R * 0.4, cx, cy, Math.max(W, H) * 0.75);
+    g.addColorStop(0, 'hsla(' + h + ',70%,38%,0.30)');
+    g.addColorStop(1, 'hsla(' + h + ',70%,38%,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    var floorY = Math.min(H - 14, base + R * 1.32);
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.beginPath();
+    ctx.ellipse(cx, floorY, R * (0.85 - jump * 0.25), R * 0.12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    spawn(cx, cy, R, dt);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i];
+      p.x += p.vx * dt * ts; p.y += p.vy * dt * ts;
+      p.life -= dt * (p.z ? 0.28 : 0.35) * ts;
+      if (p.life <= 0) { parts.splice(i, 1); continue; }
+      var al = Math.sin(Math.min(1, p.life) * Math.PI * 0.5) * (p.z ? 0.7 : 0.8);
+      if (p.z) {
+        ctx.fillStyle = 'hsla(' + h + ',90%,82%,' + al.toFixed(3) + ')';
+        ctx.font = '700 ' + p.size.toFixed(1) + 'px "Bricolage Grotesque", sans-serif';
+        ctx.fillText('z', p.x, p.y);
+      } else {
+        ctx.fillStyle = 'hsla(' + (h + 12) + ',100%,78%,' + al.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    var sq = 0.035 * Math.sin(t * 1.6) + beat * 0.012 + jump * 0.05;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1 + sq, 1 - sq);
+
+    var N = 96, sp = cur.speed;
+    ctx.beginPath();
+    for (var j = 0; j <= N; j++) {
+      var a2 = (j / N) * Math.PI * 2;
+      var r = R * (1 + 0.045 * Math.sin(a2 * 3 + t * 1.1 * sp)
+                     + 0.03 * Math.sin(a2 * 5 - t * 1.7 * sp)
+                     + 0.02 * Math.sin(a2 * 2 + t * 0.7)
+                     + 0.015 * beat);
+      var x = Math.cos(a2) * r, y = Math.sin(a2) * r;
+      if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+
+    var bg = ctx.createRadialGradient(-R * 0.3, -R * 0.4, R * 0.1, 0, 0, R * 1.15);
+    bg.addColorStop(0, 'hsl(' + h + ',90%,80%)');
+    bg.addColorStop(0.55, 'hsl(' + h + ',80%,58%)');
+    bg.addColorStop(1, 'hsl(' + (h + 20) + ',75%,32%)');
+    ctx.shadowColor = 'hsla(' + h + ',100%,60%,0.55)';
+    ctx.shadowBlur = 50;
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'hsla(' + h + ',100%,88%,0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    var core = ctx.createRadialGradient(0, R * 0.5, 0, 0, R * 0.5, R * 0.4);
+    core.addColorStop(0, 'hsla(' + h + ',100%,92%,' + (0.2 + beat * 0.4).toFixed(3) + ')');
+    core.addColorStop(1, 'hsla(' + h + ',100%,92%,0)');
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, R * 0.5, R * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (cur.cheek > 0.05) {
+      ctx.fillStyle = 'hsla(' + (h - 30) + ',100%,70%,' + (0.38 * cur.cheek).toFixed(3) + ')';
+      ctx.beginPath(); ctx.ellipse(-R * 0.5, R * 0.16, R * 0.11, R * 0.065, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(R * 0.5, R * 0.16, R * 0.11, R * 0.065, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    var open = Math.max(0.03, cur.lid * blinkF);
+    var rx = R * 0.15 * cur.eye, ryFull = R * 0.2 * cur.eye, ry = Math.max(1.2, ryFull * open);
+    var pr = R * 0.075 * cur.eye;
+    var eyes = [-R * 0.32, R * 0.32];
+    for (var e = 0; e < 2; e++) {
+      var ex = eyes[e], ey = -R * 0.1;
+      ctx.fillStyle = '#f4f8ff';
+      ctx.beginPath(); ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      var px = ex + gx * (rx - pr) * 0.8;
+      var py = ey + gy * (ryFull - pr) * 0.6 * open;
+      ctx.fillStyle = '#0a1020';
+      ctx.beginPath(); ctx.ellipse(px, py, pr, Math.max(0.8, pr * Math.min(1, open * 1.3)), 0, 0, Math.PI * 2); ctx.fill();
+      if (open > 0.3) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(px - pr * 0.35, py - pr * 0.4, pr * 0.3, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    var my = R * 0.3, mw = R * 0.2;
+    ctx.strokeStyle = '#0a1020';
+    ctx.fillStyle = '#0a1020';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(2, R * 0.032);
+    ctx.globalAlpha = 1 - cur.o;
+    ctx.beginPath();
+    ctx.moveTo(-mw, my);
+    ctx.quadraticCurveTo(0, my + cur.smile * R * 0.28, mw, my);
+    ctx.stroke();
+    ctx.globalAlpha = cur.o;
+    ctx.beginPath();
+    ctx.ellipse(0, my + R * 0.04, mw * 0.4, R * 0.075 * Math.max(0.2, cur.o), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    draw(dt);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
